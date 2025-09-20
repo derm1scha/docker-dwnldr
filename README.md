@@ -11,7 +11,7 @@ docker run --rm --network=host \
   -e FILE_ROOT=/data \
   -e SERVE_FILES=1 \
   -e FILE_URL_PREFIX=/files \
-  -v /host/downloads:/data \
+  -v /YOURhost/YOURfilesfolder:/data \
   dwnldr-tun-helper
 # open http://localhost:3000
 ```
