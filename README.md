@@ -1,5 +1,4 @@
-# dwnldr-tun-helper
-
+# docker-dwnldr
 Flask app that detects your tunnel IP (`tun0`/`wg0`/`tailscale0`), lists files from a mounted folder, and generates Windows download commands. Includes an **on-the-fly file listener** you can start/stop on any port and a **live request log**.
 
 ## Quick start (Docker, Linux host networking)
