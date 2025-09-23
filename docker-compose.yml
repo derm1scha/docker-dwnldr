@@ -1,15 +1,14 @@
 services:
   app:
     build: .
-    container_name: dwnldr
+    container_name: docker-dwnldr
     network_mode: "host"
     environment:
       - PORT=3000
       - FILE_ROOT=/data
       - SERVE_FILES=1
       - FILE_URL_PREFIX=/files
+      - COMMANDS_FILE_WINDOWS=/app/commands.windows.json
+      - COMMANDS_FILE_LINUX=/app/commands.linux.json
     volumes:
       - ./data:/data
-    # On Linux host-network is fine; on Mac/Windows use ports instead:
-    # ports:
-    #   - "8443:3000"

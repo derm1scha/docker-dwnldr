@@ -1,0 +1,58 @@
+{
+  "groups": [
+    {
+      "title": "Shell (HTTP)",
+      "tag": "HTTP",
+      "items": [
+        {
+          "id": "curl",
+          "template": "curl -fL -o \"{{filename}}\" \"{{url}}\""
+        },
+        {
+          "id": "wget",
+          "template": "wget -O \"{{filename}}\" \"{{url}}\""
+        },
+        {
+          "id": "aria2c",
+          "template": "aria2c -o \"{{filename}}\" \"{{url}}\""
+        }
+      ]
+    },
+    {
+      "title": "Shell (pipes)",
+      "tag": "HTTP",
+      "items": [
+        {
+          "id": "curl_pipe",
+          "template": "curl -fL \"{{url}}\" | tee \"{{filename}}\" >/dev/null"
+        },
+        {
+          "id": "wget_pipe",
+          "template": "wget -qO- \"{{url}}\" | tee \"{{filename}}\" >/dev/null"
+        }
+      ]
+    },
+    {
+      "title": "Netcat/Socat",
+      "items": [
+        {
+          "id": "nc_dl",
+          "template": "nc {{ip}} {{port}} > \"{{filename}}\"  # if your server is netcat-capable"
+        },
+        {
+          "id": "socat_dl",
+          "template": "socat -u TCP:{{ip}}:{{port}} OPEN:\"{{filename}}\",creat,truncate  # if your server is socat-capable"
+        }
+      ]
+    },
+    {
+      "title": "Open in browser",
+      "items": [
+        {
+          "id": "xdg_open",
+          "template": "xdg-open \"{{url}}\""
+        }
+      ]
+    }
+  ]
+}
