@@ -1,9 +1,17 @@
 # docker-dwnldr (Windows/Linux tabs, English, external CSS/JS)
-- OS tabs under the Logs section switch between **Windows** and **Linux** command sets.
-- Commands are defined in two files:
-  - `commands.windows.json`
-  - `commands.linux.json`
-- Click **Reload templates** to re-read the current OS file (no restart).
+
+Flask app that detects your tunnel IP (`tun0`/`wg0`/`tailscale0`), lists files from a mounted folder, and generates Windows/Linux download commands. Includes an **on-the-fly file listener** you can start/stop on any port and a **live request log**.
+
+- Click **Start** next to the File listener (e.g., port `8443`). With `--network=host`, the listener is on `host:8443` immediately.
+- Choose a file from the dropdown or type a filename; copy a command.
+- The **Logs** panel shows requests to the file listener in real time.
+
+
+## template files
+Added Command template files so one can change/add commands easily.
+
+
+
 
 ## Build & Run
 ```bash
@@ -21,6 +29,7 @@ docker run --rm --network=host \
 
 # open http://localhost:3000
 ```
+
 Or with compose:
 ```bash
 docker compose up --build
